@@ -186,6 +186,7 @@ check-fast: lint $(PYPY) $(PY36) $(TOX)
 
 check-rst: $(RSTLINT)
 	$(RSTLINT) *.rst
+	$(RSTLINT) guides/*.rst
 
 secret.tar.enc: deploy_key .pypirc
 	rm -f secrets.tar secrets.tar.enc
