@@ -568,7 +568,7 @@ class ConjectureRunner(object):
                     minimize(
                         block,
                         lambda b: self.incorporate_new_buffer(replace(b)),
-                        self.random
+                        random=self.random,
                     )
 
             if change_counter != self.changed:
@@ -578,6 +578,7 @@ class ConjectureRunner(object):
             self.debug('Lexicographical minimization of whole buffer')
             minimize(
                 self.last_data.buffer, self.incorporate_new_buffer,
+                random=self.random,
                 cautious=True
             )
 
@@ -590,7 +591,8 @@ class ConjectureRunner(object):
                     lambda b: self.incorporate_new_buffer(
                         self.last_data.buffer[:u] + b +
                         self.last_data.buffer[v:],
-                    ), self.random
+                    ),
+                    random=self.random,
                 )
                 i += 1
 
@@ -651,7 +653,8 @@ class ConjectureRunner(object):
                             return True
                     return False
                 minimize(
-                    self.last_data.buffer[:cutoff], test_value, cautious=True
+                    self.last_data.buffer[:cutoff], test_value, cautious=True,
+                    random=self.random,
                 )
                 b += 1
 

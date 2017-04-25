@@ -62,51 +62,21 @@ class Minimizer(object):
             return True
         return False
 
-    def _shrink_index(self, i, c):
-        assert isinstance(self.current, hbytes)
-        assert 0 <= i < self.size
-        assert self.current[i] > c
-        if self.incorporate(
-            self.current[:i] + hbytes([c]) +
-            self.current[i + 1:]
-        ):
-            return True
+    def zero(self):
+        self.singlepass(lambda b: 0)
 
-        if self.cautious:
-            return False
+    def shift(self):
+        self.singlepass(lambda b: b >> 1)
 
-        if i == self.size - 1:
-            return False
-
-        return self.incorporate(
-            self.current[:i] + hbytes([c, 255]) +
-            self.current[i + 2:]
-        ) or self.incorporate(
-            self.current[:i] + hbytes([c]) +
-            hbytes([255] * (self.size - i - 1))
-        )
-
-    def ddzero(self):
-        self.ddfixate(lambda b: 0)
-
-    def ddshift(self):
-        self.ddfixate(lambda b: b >> 1)
-
-    def ddfixate(self, f):
-        prev = -1
-        while prev != self.changes:
-            prev = self.changes
-            k = len(self.current)
-            while k > 0:
-                i = 0
-                while i + k <= len(self.current):
-                    self.incorporate(
-                        self.current[:i] +
-                        hbytes(f(b) for b in self.current[i:i + k]) +
-                        self.current[i + k:]
-                    )
-                    i += k
-                k //= 2
+    def singlepass(self, f):
+        for i in hrange(self.size):
+            c = self.current[i]
+            d = f(c)
+            if d == c:
+                continue
+            target = bytearray(self.current)
+            target[i] = d
+            self.incorporate(hbytes(target))
 
     def rotate_suffixes(self):
         for significant, c in enumerate(self.current):  # pragma: no branch
@@ -116,7 +86,7 @@ class Minimizer(object):
 
         prefix = hbytes(significant)
 
-        for i in range(1, self.size - significant):
+        for i in hrange(1, self.size - significant):
             left = self.current[significant:significant + i]
             right = self.current[significant + i:]
             rotated = prefix + right + left
@@ -124,71 +94,117 @@ class Minimizer(object):
                 self.incorporate(rotated)
 
     def shrink_indices(self):
+        # We take a bet that there is some monotonic lower bound such that
+        # whenever current >= lower_bound the result works.
         for i in hrange(self.size):
-            t = self.current[i]
-            if t > 0:
-                ss = small_shrinks[self.current[i]]
-                for c in ss:
-                    if self._shrink_index(i, c):
-                        for c in hrange(self.current[i]):
-                            if c in ss:
-                                continue
-                            if self._shrink_index(i, c):
-                                break
-                        break
+            if self.current[i] == 0:
+                continue
+            prefix = self.current[:i]
+            original_suffix = self.current[i+1:]
+
+            # If we're being cautious we can't every raise the future bytes,
+            # so we have to take the more conservative option of
+            # just using the existing prefix. This is still worth trying
+            # though.
+            if not self.cautious:
+                suffix = hbytes([255] * (self.size - i - 1))
+            else:
+                suffix = original_suffix
+
+            def suitable(c):
+                """Does the lexicographically largest value starting with
+                our prefix and having c at i satisfy the condition?"""
+
+                return self.incorporate(prefix + bytes([c]) + suffix)
+
+            if (
+                # We first see if replacing the byte with zero and the rest
+                # with 255 is enough to trigger the condition. If this
+                # succeeds we've successfully zeroed the byte here and the
+                # rest of this search isn't useful.
+                not suitable(0) and
+
+                # We now check if the lexicographic predecessor (where this
+                # element is reduced by 1 and all subsequent elements are
+                # raised to 255) is valid here. If it's not then there's
+                # no point in trying the search and we can break out early.
+                suitable(self.current[i] - 1)
+            ):
+                # We now do a binary search to find a small value
+                # where the large suffix works. Again, the property is not
+                # necessarily monotonic, so this doesn't actually guarantee
+                # the smallest value.
+                @binsearch(0, self.current[i])
+                def _(m):
+                    # We have to manually check the end point because we
+                    # already incorporated this.
+                    if m == self.current[i]:
+                        return True
+                    return suitable(m)
+
+            # We may have replaced the suffix with a block of 255s. See if
+            # we can replace it with our old suffix, which might be a lot
+            # more friendly.
+            if not self.cautious:
+                self.incorporate(self.current[:i + 1] + original_suffix)
 
     def run(self):
         if not any(self.current):
             return
         if len(self.current) == 1:
-            for c in range(self.current[0]):
+            for c in hrange(self.current[0]):
                 if self.incorporate(hbytes([c])):
                     break
             return
+
+        # Initial checks as to whether the two smallest possible buffers of
+        # this length can work. If so there's nothing to do here.
         if self.incorporate(hbytes(self.size)):
             return
         if self.incorporate(hbytes([0] * (self.size - 1) + [1])):
             return
+
+        # Perform a binary search to try to replace a long initial segment with
+        # zero bytes.
+        # Note that because this property isn't monotonic this will not always
+        # find the longest subsequence we can replace with zero, only some
+        # subsequence.
+
+        # Replacing the first nonzero bytes with zero does *not* work
+        nonzero = len(self.current)
+
+        # Replacing the first canzero bytes with zero *does* work.
+        canzero = 0
+        while self.current[canzero] == 0:
+            canzero += 1
+
+        @binsearch(canzero, nonzero)
+        def zero_prefix(mid):
+            return self.incorporate(
+                self.current[:mid] + hbytes(len(self.current) - mid)
+            )
+
+        @binsearch(0, self.size)
+        def shift_right(mid):
+            if mid == 0:
+                return True
+            if mid == self.size:
+                return False
+            return self.incorporate(self.current[:-mid] + hbytes(mid))
+
         change_counter = -1
         while self.current and change_counter < self.changes:
             change_counter = self.changes
 
-            self.ddzero()
-            self.ddshift()
-
-            if change_counter != self.changes:
-                continue
-
+            self.zero()
+            self.shift()
             self.shrink_indices()
 
-            if change_counter != self.changes or self.cautious:
-                continue
-
-            self.rotate_suffixes()
+            if not self.cautious:
+                self.rotate_suffixes()
 
 
-# Table of useful small shrinks to apply to a number.
-# The idea is that we use these first to see if shrinking is likely to work.
-# If it is, we try a full shrink. In the best case scenario this speeds us
-# up by a factor of about 25. It will occasionally cause us to miss
-# shrinks that we could have succeeded with, but oh well. It doesn't fail any
-# of our guarantees because we do try to shrink to -1 among other things.
-small_shrinks = [
-    set(range(b)) for b in hrange(10)
-]
-
-for b in hrange(10, 256):
-    result = set()
-    result.add(0)
-    result.add(b - 1)
-    for i in hrange(8):
-        result.add(b ^ (1 << i))
-    result.discard(b)
-    assert len(result) <= 10
-    small_shrinks.append(sorted([c for c in result if c < b]))
-
-
-def minimize(initial, condition, random=None, cautious=False):
+def minimize(initial, condition, random, cautious=False):
     """Perform a lexicographical minimization of the byte string 'initial' such
     that the predicate 'condition' returns True, and return the minimized
     string.
@@ -203,3 +219,25 @@ def minimize(initial, condition, random=None, cautious=False):
     m = Minimizer(initial, condition, random, cautious)
     m.run()
     return m.current
+
+
+def binsearch(_lo, _hi):
+    def accept(f):
+        lo = _lo
+        hi = _hi
+
+        loval = f(lo)
+        hival = f(hi)
+
+        if loval == hival:
+            return
+
+        while lo + 1 < hi:
+            mid = (lo + hi) // 2
+            midval = f(mid)
+            if midval == loval:
+                lo = mid
+            else:
+                assert hival == midval
+                hi = mid
+    return accept
