@@ -88,6 +88,8 @@ class SingleBenchmarkResult(object):
 STRATEGIES = OrderedDict([
     ('ints', st.integers()),
     ('intlists', st.lists(st.integers())),
+    ('sizedintlists', st.integers(0, 10).flatmap(
+        lambda n: st.lists(st.integers(), min_size=n, max_size=n))),
 ])
 
 

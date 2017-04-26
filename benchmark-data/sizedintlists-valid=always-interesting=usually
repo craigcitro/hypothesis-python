@@ -1,0 +1,30 @@
+# This is an automatically generated file from Hypothesis's benchmarking
+# script (scripts/benchmarks.py).
+#
+# Lines like this starting with a # are designed to be useful for human
+# consumption when reviewing, specifically with a goal of producing
+# useful diffs so that you can get a sense of the impact of a change.
+#
+# This benchmark is for sizedintlists [integers(min_value=0, max_value=10).flatmap(lambda n: st.lists(st.integers(), min_size=n, max_size=n))], with the validity
+# condition "always" and the interestingness condition "usually".
+# See the script for the exact definitions of these criteria.
+#
+# This benchmark was generated with seed 0
+#
+# Key statistics for this benchmark:
+#
+# * 200 runs, of which 200 succeeded.
+# * Mean size: 547.79 bytes, standard deviation: 706.83 bytes
+# * Mean shrunk size: 1.8
+#
+# Additional interesting statistics:
+#
+# * Ranging from 2 [21 times] to 4470 [once] bytes.
+# * Median size: 199
+# * 99% of examples had at least 2 bytes
+# * 99% of examples had at most 4106 bytes
+#
+# All data after this point is an opaque binary blob. You are not expected
+# to understand it.
+
+Data 840: STARTPCOM3WWLJYBECEAF2BPSDLCZ6RV2M2L7YUMEHAEFNN2KHYO72WCRVXAMI5JISO4GKQH5L5NYOX5TM37LYPXHTN56LPO37LKPJ6X4PD2PHHK34WNNJ4X7X7PROT5PZYXH5HY4XZV4LF6S6KDETXZRY227ZWPW3M6XU65NKBIWZ2ODFWNXUTXVPBZUANRZQ7OJCM5GIG4YCI5PJBY43OBNNFVLV3P6NUUMIHCT5QFGD7TP32CYOIGTHDAVKSZO2VZBWEXLXX3PZJXB5NXBHJC44ACNN6ORJAOQL252WYXU45VJQXUD7VLYQLUYGC2R7XICVLSYT6KCFR2O73PV6OZH3P5FLVFMOZWX63O4MVU3J2L7A5VJLXYRB22TYFP6GGONFB2RUKM2YTNPXOFIANNRQCOEDQN5A4BSZEGW7W6FPZQ3VEIRJ2KH2RWTEWTT7NUB2Z5EFAULM5HK4IEFVSLNH4RPLRXKCD7LMKSALE2RJIWTUPWFFMCA2PQD5MHLBBWCSUQB3K2INN2GMIFG3PVVK43BJKRRBCVRK4KTCMUW32FGQP5TYIL2YIFGVEDMMU4LIGAWDXROJ65YWBLKZ7CR6CUEC36H4RLKP5UV2VQLWGYBS6VZCCW2ERLCCQHGO5K6FG6INBSPXTAXEPDLHD74NGWVAYOQ5JPIMFBNKTSU7OB2SFF3D457ZNJSLG6NDS2AXU6OCZWXWPUH6KQ6BYTXGTN53HB52FXGWKQWFPDLTXVBARYIMUDJMSXC54NGHD4KT2AFR6NYOVJW4GFPOAAHWB7IOVFQSJLPT2X5RP43LRJZ6D47L4PI7B4PQ52H4B3A6ZKMG===END
