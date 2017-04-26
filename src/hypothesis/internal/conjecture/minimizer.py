@@ -21,11 +21,12 @@ from hypothesis.internal.compat import hbytes, hrange
 
 
 """
-This module implements a lexicographic minimizer for blocks of bytearray.
+This module implements a lexicographic minimizer for blocks of bytes.
 
-That is, given a block of bytes of size n, and a predicate that accepts such
-blocks, it tries to find a lexicographically minimal block of that size
-that satisfies the predicate, starting from that initial starting point.
+That is, given a block of bytes of a given size, and a predicate that accepts
+such blocks, it tries to find a lexicographically minimal block of that size
+that satisfies the predicate, by repeatedly making local changes to that
+starting point.
 
 Assuming it is allowed to run to completion (which due to the way we use it it
 actually often isn't) it makes the following guarantees, but it usually tries
@@ -50,33 +51,36 @@ class Minimizer(object):
         self.seen = set()
 
     def incorporate(self, buffer):
+        """Consider this buffer as a possible replacement for the current best
+        buffer. Return True if it succeeds as such."""
         assert isinstance(buffer, hbytes)
         assert len(buffer) == self.size
         assert buffer <= self.current
         if buffer in self.seen:
             return False
         self.seen.add(buffer)
+        if self.cautious:
+            for c, b in zip(buffer, self.current):
+                assert c <= b, (buffer, self.current)
         if buffer != self.current and self.condition(buffer):
             self.current = buffer
             self.changes += 1
             return True
         return False
 
-    def zero(self):
-        self.singlepass(lambda b: 0)
-
     def shift(self):
-        self.singlepass(lambda b: b >> 1)
-
-    def singlepass(self, f):
-        for i in hrange(self.size):
-            c = self.current[i]
-            d = f(c)
-            if d == c:
-                continue
-            target = bytearray(self.current)
-            target[i] = d
-            self.incorporate(hbytes(target))
+        """Attempt to shift individual byte values right as far as they can
+        go."""
+        prev = -1
+        while prev != self.changes:
+            prev = self.changes
+            for i in hrange(self.size):
+                block = bytearray(self.current)
+                c = block[i]
+                for k in hrange(c.bit_length(), 0, -1):
+                    block[i] = c >> k
+                    if self.incorporate(hbytes(block)):
+                        break
 
     def rotate_suffixes(self):
         for significant, c in enumerate(self.current):  # pragma: no branch
@@ -93,7 +97,9 @@ class Minimizer(object):
             if rotated < self.current:
                 self.incorporate(rotated)
 
-    def shrink_indices(self):
+    def shrink_indices(self, timid):
+        assert timid or not self.cautious
+
         # We take a bet that there is some monotonic lower bound such that
         # whenever current >= lower_bound the result works.
         for i in hrange(self.size):
@@ -106,16 +112,18 @@ class Minimizer(object):
             # so we have to take the more conservative option of
             # just using the existing prefix. This is still worth trying
             # though.
-            if not self.cautious:
-                suffix = hbytes([255] * (self.size - i - 1))
-            else:
+            if timid:
                 suffix = original_suffix
+            else:
+                suffix = hbytes([255] * (self.size - i - 1))
 
             def suitable(c):
                 """Does the lexicographically largest value starting with
                 our prefix and having c at i satisfy the condition?"""
 
                 return self.incorporate(prefix + bytes([c]) + suffix)
+
+            c = self.current[i]
 
             if (
                 # We first see if replacing the byte with zero and the rest
@@ -128,7 +136,7 @@ class Minimizer(object):
                 # element is reduced by 1 and all subsequent elements are
                 # raised to 255) is valid here. If it's not then there's
                 # no point in trying the search and we can break out early.
-                suitable(self.current[i] - 1)
+                suitable(c - 1)
             ):
                 # We now do a binary search to find a small value
                 # where the large suffix works. Again, the property is not
@@ -145,8 +153,7 @@ class Minimizer(object):
             # We may have replaced the suffix with a block of 255s. See if
             # we can replace it with our old suffix, which might be a lot
             # more friendly.
-            if not self.cautious:
-                self.incorporate(self.current[:i + 1] + original_suffix)
+            self.incorporate(self.current[:i + 1] + original_suffix)
 
     def run(self):
         if not any(self.current):
@@ -161,8 +168,10 @@ class Minimizer(object):
         # this length can work. If so there's nothing to do here.
         if self.incorporate(hbytes(self.size)):
             return
-        if self.incorporate(hbytes([0] * (self.size - 1) + [1])):
-            return
+
+        if not self.cautious or self.current[-1] > 0:
+            if self.incorporate(hbytes([0] * (self.size - 1) + [1])):
+                return
 
         # Perform a binary search to try to replace a long initial segment with
         # zero bytes.
@@ -196,11 +205,11 @@ class Minimizer(object):
         while self.current and change_counter < self.changes:
             change_counter = self.changes
 
-            self.zero()
             self.shift()
-            self.shrink_indices()
+            self.shrink_indices(timid=True)
 
             if not self.cautious:
+                self.shrink_indices(timid=False)
                 self.rotate_suffixes()
 
 
@@ -222,6 +231,9 @@ def minimize(initial, condition, random, cautious=False):
 
 
 def binsearch(_lo, _hi):
+    """Run a binary search to find the point at which a function changes value
+    between two bounds. This function is used purely for its side effects and
+    returns nothing."""
     def accept(f):
         lo = _lo
         hi = _hi
