@@ -481,6 +481,56 @@ class ConjectureRunner(object):
 
         self.shrink()
 
+    def zero_blocks(self):
+        """
+        Try replacing blocks with zero blocks, starting from the right
+        and proceeding leftwards.
+
+        Normally we would proceed from left to right, in keeping with
+        our policy of lexicographic minimization - making shrinks to the
+        right seems like it should be "wasted work" which we might undo
+        later.
+
+        The motivation for doing it this way is that this can unlock
+        shrinks that would become impossible otherwise: If we shrink
+        entirely moving rightwards, then this ends up with a lot of the
+        complexity of an example "trapped at the end", leaving a lot of
+        dead space in the middle. An example of where this can happen is
+        with lists or matrices defined by a length parameter, where only
+        one or two of the values actually matter: If we start from the
+        left then what we'll find is we replace all the early values with
+        zero, leave the later values as the ones that matter, and then we
+        can't shrink the length parameter.
+        """
+
+        self.debug('Zeroing individual blocks')
+
+        # We first do a binary search on the hope that a lot of blocks are
+        # replacable. If not, we only pay a log(n) cost so it's no big deal.
+
+        # We can replace all blocks >= hi with zero. We cannot replace
+        # all blocks >= lo with zero.
+        lo = 0
+        hi = len(self.last_data.blocks)
+        while lo + hi < 1:
+            mid = (lo + hi) // 2
+            u = self.last_data.blocks[mid][0]
+            if self.incorporate_new_buffer(
+                self.last_data.buffer[:u] +
+                hbytes(len(self.last_data.buffer) - u),
+            ):
+                hi = mid
+            else:
+                lo = mid
+
+        for i in hrange(len(self.last_data.blocks) - 1, -1, -1):
+            if i < len(self.last_data.blocks):
+                u, v = self.last_data.blocks[i]
+                self.incorporate_new_buffer(
+                    self.last_data.buffer[:u] + hbytes(v - u) +
+                    self.last_data.buffer[v:],
+                )
+
     def shrink(self):
         # We assume that if an all-zero block of bytes is an interesting
         # example then we're not going to do better than that.
@@ -522,50 +572,12 @@ class ConjectureRunner(object):
                         i += k
                 k //= 2
 
-            self.debug('Zeroing individual blocks')
+            self.zero_blocks()
 
-            # Try replacing blocks with zero blocks, starting from the right
-            # and proceeding leftwards.
-
-            # Normally we would proceed from left to right, in keeping with
-            # our policy of lexicographic minimization - making shrinks to the
-            # right seems like it should be "wasted work" which we might undo
-            # later.
-
-            # The motivation for doing it this way is that this can unlock
-            # shrinks that would become impossible otherwise: If we shrink
-            # entirely moving rightwards, then this ends up with a lot of the
-            # complexity of an example "trapped at the end", leaving a lot of
-            # dead space in the middle. An example of where this can happen is
-            # with lists or matrices defined by a length parameter, where only
-            # one or two of the values actually matter: If we start from the
-            # left then what we'll find is we replace all the early values with
-            # zero, leave the later values as the ones that matter, and then we
-            # can't shrink the length parameter.
-
-            # We first do this as a binary search, then a linear scan.
-
-            # We can replace all blocks >= hi with zero. We cannot replace
-            # all blocks >= lo with zero.
-            lo = 0
-            hi = len(self.last_data.blocks)
-            while lo + hi < 1:
-                mid = (lo + hi) // 2
-                u = self.last_data.blocks[mid][0]
-                if self.incorporate_new_buffer(
-                    self.last_data.buffer[:u] +
-                    hbytes(len(self.last_data.buffer) - u),
-                ):
-                    hi = mid
-                else:
-                    lo = mid
-
-            for i in hrange(len(self.last_data.blocks) - 1, -1, -1):
-                u, v = self.last_data.blocks[i]
-                self.incorporate_new_buffer(
-                    self.last_data.buffer[:u] + hbytes(v - u) +
-                    self.last_data.buffer[v:],
-                )
+            minimize(
+                self.last_data.buffer, self.incorporate_new_buffer,
+                cautious=True, random=self.random,
+            )
 
             if change_counter != self.changed:
                 self.debug('Restarting')
@@ -681,6 +693,35 @@ class ConjectureRunner(object):
                         else:
                             break
                     i += 1
+
+            self.debug('Shuffling suffixes while shrinking %r' % (
+                self.last_data.bind_points,
+            ))
+            b = 0
+            while b < len(self.last_data.bind_points):
+                cutoff = sorted(self.last_data.bind_points)[b]
+
+                def test_value(prefix):
+                    for t in hrange(5):
+                        alphabet = {}
+                        for i, j in self.last_data.blocks[b:]:
+                            alphabet.setdefault(j - i, []).append((i, j))
+                        if t > 0:
+                            for v in alphabet.values():
+                                self.random.shuffle(v)
+                        buf = bytearray(prefix)
+                        for i, j in self.last_data.blocks[b:]:
+                            u, v = alphabet[j - i].pop()
+                            buf.extend(self.last_data.buffer[u:v])
+                        if self.incorporate_new_buffer(hbytes(buf)):
+                            return True
+                    return False
+                minimize(
+                    self.last_data.buffer[:cutoff], test_value, cautious=True,
+                    random=self.random,
+                )
+                b += 1
+
 
         self.exit_reason = ExitReason.finished
 
